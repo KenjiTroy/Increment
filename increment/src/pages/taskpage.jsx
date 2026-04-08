@@ -122,6 +122,51 @@ function SlideTaskCard({ task, onComplete }) {
   )
 }
 
+<button onClick={enableNotifications}>
+  Enable 8 AM reminders
+</button>
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)))
+}
+
+async function enableNotifications() {
+  try {
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      throw new Error('This browser does not support push notifications.')
+    }
+
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      throw new Error('Notification permission was not granted.')
+    }
+
+    const registration = await navigator.serviceWorker.ready
+
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY),
+    })
+
+    const { error } = await supabase.from('push_subscriptions').upsert({
+      user_id: user.id,
+      subscription: subscription.toJSON(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      updated_at: new Date().toISOString(),
+    })
+
+    if (error) throw error
+
+    alert('Notifications are enabled.')
+  } catch (err) {
+    console.error(err)
+    alert(err.message || 'Could not enable notifications.')
+  }
+}
+
 export default function TasksPage({ user, onSignOut }) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
