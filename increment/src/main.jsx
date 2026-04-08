@@ -19,3 +19,19 @@ if ('serviceWorker' in navigator) {
     }
   })
 }
+
+useEffect(() => {
+  supabase.auth.getUser().then(({ data, error }) => {
+    console.log('getUser:', data, error)
+    setUser(data.user ?? null)
+  })
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((event, session) => {
+    console.log('auth change:', event, session)
+    setUser(session?.user ?? null)
+  })
+
+  return () => subscription.unsubscribe()
+}, [])
