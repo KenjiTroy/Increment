@@ -122,9 +122,7 @@ function SlideTaskCard({ task, onComplete }) {
   )
 }
 
-<button onClick={enableNotifications}>
-  Enable 8 AM reminders
-</button>
+
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -370,6 +368,10 @@ export default function TasksPage({ user, onSignOut }) {
           <p className="text-gray-400 break-all" style={{ marginTop: '8px', textAlign: 'center' }}>
             Welcome, {user.email}
           </p>
+
+          <button onClick={enableNotifications}>
+            Enable 8 AM reminders
+          </button>
         </div>
 
         {loading && <p className="text-center text-gray-400">Loading tasks...</p>}
