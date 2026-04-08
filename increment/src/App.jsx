@@ -19,19 +19,11 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
- const signInWithGoogle = async () => {
-  console.log('Signing in from:', window.location.origin)
-
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: window.location.origin,
-      scopes: 'https://www.googleapis.com/auth/userinfo.email',
-    },
-  })
-
-  console.log('signInWithOAuth:', data, error)
-}
+  const signInWithGoogle = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+    })
+  }
 
   const signOut = async () => {
     await supabase.auth.signOut()

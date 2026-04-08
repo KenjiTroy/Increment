@@ -283,10 +283,12 @@ export default function TasksPage({ user, onSignOut }) {
         },
       ]
 
-      const { data: inserted, error: insertError } = await supabase
-        .from('daily_tasks')
-        .insert(rowsToInsert)
-        .select()
+    const { data: inserted, error: insertError } = await supabase
+      .from('daily_tasks')
+      .upsert(rowsToInsert, {
+        onConflict: 'user_id,task_date,task_key',
+      })
+      .select()
 
       if (insertError) throw insertError
 
