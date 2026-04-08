@@ -1,9 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-
-function todayString() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function formatTaskLabel(task) {
   switch (task.task_key) {
@@ -26,89 +22,76 @@ function formatTaskLabel(task) {
   }
 }
 
-const DEFAULT_TASKS = [
-  { task_key: 'squats', task_name: 'Squats', target_value: 12, unit: 'reps' },
-  { task_key: 'pushups', task_name: 'Push-ups', target_value: 8, unit: 'reps' },
-  { task_key: 'lunges', task_name: 'Lunges', target_value: 10, unit: 'reps each leg' },
-  { task_key: 'plank', task_name: 'Plank', target_value: 30, unit: 'sec' },
-  { task_key: 'glute_bridge', task_name: 'Glute bridge', target_value: 12, unit: 'reps' },
-  { task_key: 'mountain_climbers', task_name: 'Mountain climbers', target_value: 30, unit: 'sec' },
-  { task_key: 'superman_hold', task_name: 'Superman hold', target_value: 20, unit: 'sec' },
-]
-
 function SlideTaskCard({ task, onComplete }) {
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
+  const dragXRef = useRef(0)
 
-  const maxDrag = 120
-  const completeThreshold = 80
+  const maxDrag = 140
+  const completeThreshold = 55
 
   useEffect(() => {
     setDragX(0)
+    dragXRef.current = 0
   }, [task.completed])
 
   const handlePointerDown = (e) => {
     if (task.completed) return
 
     const startX = e.clientX
-    const initialX = dragX
+    const initialX = dragXRef.current
     setDragging(true)
+
+    e.currentTarget.setPointerCapture?.(e.pointerId)
 
     const onMove = (moveEvent) => {
       const delta = moveEvent.clientX - startX
       const nextX = Math.max(0, Math.min(maxDrag, initialX + delta))
+      dragXRef.current = nextX
       setDragX(nextX)
     }
 
     const onUp = () => {
       setDragging(false)
 
-      if (dragX >= completeThreshold) {
-        setDragX(0)
+      const finalX = dragXRef.current
+      dragXRef.current = 0
+      setDragX(0)
+
+      if (finalX >= completeThreshold) {
         onComplete(task)
-      } else {
-        setDragX(0)
       }
 
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
 
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   return (
     <div
-      className="relative h-24 mx-auto overflow-hidden rounded-xl"
+      className="relative mx-auto"
       style={{ width: '100%', maxWidth: '460px' }}
     >
       <div
-        className={`absolute inset-0 rounded-xl border transition-all duration-300 ${
-          task.completed
-            ? 'bg-green-500/15 border-green-400/40'
-            : 'bg-[#121212] border-[#3a3a3a]'
-        }`}
-      />
-
-      <div
         onPointerDown={handlePointerDown}
-        className={`absolute cursor-grab active:cursor-grabbing rounded-lg border p-3 sm:p-4 transition-all duration-200 ${
-          task.completed ? 'inset-0' : 'inset-2'
-        } ${
-          task.completed
-            ? 'bg-[#1b1b1b] border-[#2a2a2a] opacity-80'
-            : dragging
-            ? 'bg-[#181818] border-[#2a2a2a] shadow-lg'
-            : 'bg-[#121212] border-[#2a2a2a]'
-        }`}
+        className="cursor-grab active:cursor-grabbing transition-all duration-200"
         style={{
           transform: `translateX(${dragX}px)`,
           transition: dragging ? 'none' : 'transform 0.2s ease',
-          touchAction: 'none',
+          touchAction: 'pan-y',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          background: 'transparent',
+          boxShadow: 'none',
+          border: 'none',
         }}
       >
-        <div className="flex h-full items-center justify-start">
+        <div className="flex h-full items-center justify-start px-3 sm:px-4">
           <div className="text-left w-full">
             <p
               className={`block w-full rounded-lg border px-3 py-1 text-left text-xl sm:text-2xl ${
@@ -150,18 +133,25 @@ export default function TasksPage({ user, onSignOut }) {
     }
   }, [user])
 
+  async function getWorkoutDate() {
+    const { data, error } = await supabase.rpc('get_workout_date')
+
+    if (error) throw error
+    return data
+  }
+
   async function loadTodayTasks() {
     setLoading(true)
     setError('')
 
     try {
-      const date = todayString()
+      const workoutDate = await getWorkoutDate()
 
       const { data: existingTasks, error: fetchError } = await supabase
         .from('daily_tasks')
         .select('*')
         .eq('user_id', user.id)
-        .eq('task_date', date)
+        .eq('task_date', workoutDate)
         .order('completed', { ascending: true })
         .order('id', { ascending: true })
 
@@ -172,15 +162,83 @@ export default function TasksPage({ user, onSignOut }) {
         return
       }
 
-      const rowsToInsert = DEFAULT_TASKS.map((task) => ({
-        user_id: user.id,
-        task_date: date,
-        task_key: task.task_key,
-        task_name: task.task_name,
-        target_value: task.target_value,
-        unit: task.unit,
-        completed: false,
-      }))
+      const { data: targets, error: targetsError } = await supabase.rpc(
+        'get_today_targets',
+        { p_user_id: user.id }
+      )
+
+      if (targetsError) throw targetsError
+      if (!targets || targets.length === 0) {
+        throw new Error('Could not load target values.')
+      }
+
+      const t = targets[0]
+
+      const rowsToInsert = [
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'squats',
+          task_name: 'Squats',
+          target_value: t.squats,
+          unit: 'reps',
+          completed: false,
+        },
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'pushups',
+          task_name: 'Push-ups',
+          target_value: t.pushups,
+          unit: 'reps',
+          completed: false,
+        },
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'lunges',
+          task_name: 'Lunges',
+          target_value: t.lunges_each_leg,
+          unit: 'reps each leg',
+          completed: false,
+        },
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'plank',
+          task_name: 'Plank',
+          target_value: t.plank_seconds,
+          unit: 'sec',
+          completed: false,
+        },
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'glute_bridge',
+          task_name: 'Glute bridge',
+          target_value: t.glute_bridge,
+          unit: 'reps',
+          completed: false,
+        },
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'mountain_climbers',
+          task_name: 'Mountain climbers',
+          target_value: t.mountain_climbers_seconds,
+          unit: 'sec',
+          completed: false,
+        },
+        {
+          user_id: user.id,
+          task_date: t.workout_date,
+          task_key: 'superman_hold',
+          task_name: 'Superman hold',
+          target_value: t.superman_hold_seconds,
+          unit: 'sec',
+          completed: false,
+        },
+      ]
 
       const { data: inserted, error: insertError } = await supabase
         .from('daily_tasks')
@@ -209,10 +267,22 @@ export default function TasksPage({ user, onSignOut }) {
 
       if (error) throw error
 
-      setTasks((prev) => {
-        const updated = prev.map((item) => (item.id === task.id ? data : item))
-        return updated.sort((a, b) => Number(a.completed) - Number(b.completed))
-      })
+      const updatedTasks = tasks
+        .map((item) => (item.id === task.id ? data : item))
+        .sort((a, b) => Number(a.completed) - Number(b.completed))
+
+      setTasks(updatedTasks)
+
+      const allCompleted = updatedTasks.every((item) => item.completed)
+
+      if (allCompleted) {
+        const { error: completeDayError } = await supabase.rpc(
+          'mark_workout_day_complete',
+          { p_user_id: user.id }
+        )
+
+        if (completeDayError) throw completeDayError
+      }
     } catch (err) {
       console.error(err)
       setError(err.message || 'Failed to complete task.')
